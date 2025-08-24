@@ -1,4 +1,4 @@
-# goenv
+# GoEnv
 
 A small Go package that makes working with environment variables simple, type-safe, and convenient.
 
