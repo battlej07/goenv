@@ -2,7 +2,7 @@
 
 A small Go package that makes working with environment variables simple, type-safe, and convenient.
 
-goenv provides helper functions for retrieving environment variables with fallbacks, strict parsing, and common types like int, float, bool, time.Time, and time.Duration.
+GoEnv provides helper functions for retrieving environment variables with fallbacks, strict parsing, and common types like int, float, bool, time.Time, and time.Duration.
 
 ## Features
 
