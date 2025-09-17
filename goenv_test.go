@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/J-Me-2307/goenv"
+	"github.com/battlej07/goenv"
 )
 
 /* ---------- helpers ---------- */

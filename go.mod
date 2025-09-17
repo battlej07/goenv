@@ -1,3 +1,3 @@
-module github.com/J-Me-2307/goenv
+module github.com/battlej07/goenv
 
 go 1.25.0
