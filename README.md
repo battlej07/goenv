@@ -15,7 +15,7 @@ GoEnv provides helper functions for retrieving environment variables with fallba
 ## Installation
 
 ```bash
-go get github.com/J-Me-2307/goenv
+go get github.com/battlej07/goenv
 ```
 
 ## Usage
