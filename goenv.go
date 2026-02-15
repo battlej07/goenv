@@ -246,9 +246,11 @@ func MustGetEnvDuration(key string) time.Duration {
 
 // Load populates a struct's fields from environment variables using struct tags.
 // Each field should have a `goenv:"ENV_VAR_NAME"` tag to specify which environment
-// variable to load. The function uses reflection to set field values based on their types.
+// variable to load. Optionally, a `fallback:"value"` tag can be used to provide a
+// default value if the environment variable is missing or invalid.
+// The function uses reflection to set field values based on their types.
 // The input must be a pointer to a struct. Returns an error if the input is invalid
-// or if any required environment variable cannot be loaded.
+// or if any required environment variable cannot be loaded (and no fallback is provided).
 func Load(v any) error {
 	val := reflect.ValueOf(v)
 	if val.Kind() != reflect.Pointer || val.IsNil() {
@@ -274,7 +276,8 @@ func Load(v any) error {
 			continue
 		}
 
-		if err := setField(field, tag); err != nil {
+		fallbackTag := fieldType.Tag.Get("fallback")
+		if err := setField(field, tag, fallbackTag); err != nil {
 			return fmt.Errorf("field %s: %w", fieldType.Name, err)
 		}
 	}
@@ -282,11 +285,15 @@ func Load(v any) error {
 	return nil
 }
 
-func setField(field reflect.Value, envKey string) error {
+func setField(field reflect.Value, envKey, fallback string) error {
 	switch field.Kind() {
 	case reflect.String:
 		v, err := TryGetEnv(envKey)
 		if err != nil {
+			if fallback != "" {
+				field.SetString(fallback)
+				return nil
+			}
 			return err
 		}
 		field.SetString(v)
@@ -295,12 +302,28 @@ func setField(field reflect.Value, envKey string) error {
 		if field.Type() == reflect.TypeFor[time.Duration]() {
 			v, err := TryGetEnvDuration(envKey)
 			if err != nil {
+				if fallback != "" {
+					d, parseErr := time.ParseDuration(fallback)
+					if parseErr != nil {
+						return fmt.Errorf("invalid fallback duration %q: %w", fallback, parseErr)
+					}
+					field.SetInt(int64(d))
+					return nil
+				}
 				return err
 			}
 			field.SetInt(int64(v))
 		} else {
 			v, err := TryGetEnvInt(envKey)
 			if err != nil {
+				if fallback != "" {
+					i, parseErr := strconv.Atoi(fallback)
+					if parseErr != nil {
+						return fmt.Errorf("invalid fallback integer %q: %w", fallback, parseErr)
+					}
+					field.SetInt(int64(i))
+					return nil
+				}
 				return err
 			}
 			field.SetInt(int64(v))
@@ -309,6 +332,14 @@ func setField(field reflect.Value, envKey string) error {
 	case reflect.Float32:
 		v, err := TryGetEnvFloat32(envKey)
 		if err != nil {
+			if fallback != "" {
+				f, parseErr := strconv.ParseFloat(fallback, 32)
+				if parseErr != nil {
+					return fmt.Errorf("invalid fallback float32 %q: %w", fallback, parseErr)
+				}
+				field.SetFloat(f)
+				return nil
+			}
 			return err
 		}
 		field.SetFloat(float64(v))
@@ -316,6 +347,14 @@ func setField(field reflect.Value, envKey string) error {
 	case reflect.Float64:
 		v, err := TryGetEnvFloat64(envKey)
 		if err != nil {
+			if fallback != "" {
+				f, parseErr := strconv.ParseFloat(fallback, 64)
+				if parseErr != nil {
+					return fmt.Errorf("invalid fallback float64 %q: %w", fallback, parseErr)
+				}
+				field.SetFloat(f)
+				return nil
+			}
 			return err
 		}
 		field.SetFloat(v)
@@ -323,6 +362,14 @@ func setField(field reflect.Value, envKey string) error {
 	case reflect.Bool:
 		v, err := TryGetEnvBool(envKey)
 		if err != nil {
+			if fallback != "" {
+				b, parseErr := strconv.ParseBool(fallback)
+				if parseErr != nil {
+					return fmt.Errorf("invalid fallback bool %q: %w", fallback, parseErr)
+				}
+				field.SetBool(b)
+				return nil
+			}
 			return err
 		}
 		field.SetBool(v)
@@ -331,6 +378,14 @@ func setField(field reflect.Value, envKey string) error {
 		if field.Type() == reflect.TypeFor[time.Time]() {
 			v, err := TryGetEnvTime(envKey)
 			if err != nil {
+				if fallback != "" {
+					t, parseErr := time.Parse(time.RFC3339, fallback)
+					if parseErr != nil {
+						return fmt.Errorf("invalid fallback time %q (RFC3339): %w", fallback, parseErr)
+					}
+					field.Set(reflect.ValueOf(t))
+					return nil
+				}
 				return err
 			}
 			field.Set(reflect.ValueOf(v))

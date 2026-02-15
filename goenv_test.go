@@ -791,5 +791,81 @@ func TestLoad(t *testing.T) {
 			t.Errorf("I64 = %v, want 9999999999", cfg.I64)
 		}
 	})
+
+	t.Run("fallback - all types", func(t *testing.T) {
+		type FallbackConfig struct {
+			Name    string        `goenv:"FB_NAME" fallback:"default-app"`
+			Port    int           `goenv:"FB_PORT" fallback:"3000"`
+			Enabled bool          `goenv:"FB_ENABLED" fallback:"true"`
+			Rate    float64       `goenv:"FB_RATE" fallback:"1.5"`
+			Ratio   float32       `goenv:"FB_RATIO" fallback:"2.5"`
+			Timeout time.Duration `goenv:"FB_TIMEOUT" fallback:"10s"`
+			StartAt time.Time     `goenv:"FB_START_AT" fallback:"2025-06-01T00:00:00Z"`
+		}
+
+		var cfg FallbackConfig
+		err := goenv.Load(&cfg)
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Name != "default-app" {
+			t.Errorf("Name = %v, want default-app", cfg.Name)
+		}
+		if cfg.Port != 3000 {
+			t.Errorf("Port = %v, want 3000", cfg.Port)
+		}
+		if !cfg.Enabled {
+			t.Errorf("Enabled = %v, want true", cfg.Enabled)
+		}
+		if !almostEq64(cfg.Rate, 1.5, 1e-12) {
+			t.Errorf("Rate = %v, want 1.5", cfg.Rate)
+		}
+		if !almostEq32(cfg.Ratio, 2.5, 1e-6) {
+			t.Errorf("Ratio = %v, want 2.5", cfg.Ratio)
+		}
+		if cfg.Timeout != 10*time.Second {
+			t.Errorf("Timeout = %v, want 10s", cfg.Timeout)
+		}
+		want := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+		if !cfg.StartAt.Equal(want) {
+			t.Errorf("StartAt = %v, want %v", cfg.StartAt, want)
+		}
+	})
+
+	t.Run("fallback - env overrides fallback", func(t *testing.T) {
+		type OverrideConfig struct {
+			Name string `goenv:"OVR_NAME" fallback:"default"`
+			Port int    `goenv:"OVR_PORT" fallback:"8080"`
+		}
+
+		t.Setenv("OVR_NAME", "custom-app")
+		t.Setenv("OVR_PORT", "9000")
+
+		var cfg OverrideConfig
+		err := goenv.Load(&cfg)
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Name != "custom-app" {
+			t.Errorf("Name = %v, want custom-app", cfg.Name)
+		}
+		if cfg.Port != 9000 {
+			t.Errorf("Port = %v, want 9000", cfg.Port)
+		}
+	})
+
+	t.Run("fallback - invalid fallback value", func(t *testing.T) {
+		type BadFallbackConfig struct {
+			Port int `goenv:"BAD_PORT" fallback:"notanumber"`
+		}
+
+		var cfg BadFallbackConfig
+		err := goenv.Load(&cfg)
+		if err == nil {
+			t.Fatal("Load() should have failed with invalid fallback")
+		}
+	})
 }
 
