@@ -6,6 +6,7 @@ package goenv
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"time"
 )
@@ -241,4 +242,105 @@ func MustGetEnvDuration(key string) time.Duration {
 		panic(err)
 	}
 	return v
+}
+
+// Load populates a struct's fields from environment variables using struct tags.
+// Each field should have a `goenv:"ENV_VAR_NAME"` tag to specify which environment
+// variable to load. The function uses reflection to set field values based on their types.
+// The input must be a pointer to a struct. Returns an error if the input is invalid
+// or if any required environment variable cannot be loaded.
+func Load(v any) error {
+	val := reflect.ValueOf(v)
+	if val.Kind() != reflect.Pointer || val.IsNil() {
+		return fmt.Errorf("Load expects a non-nil pointer to a struct")
+	}
+
+	val = val.Elem()
+	if val.Kind() != reflect.Struct {
+		return fmt.Errorf("Load expects a pointer to a struct, got %s", val.Kind())
+	}
+
+	typ := val.Type()
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		fieldType := typ.Field(i)
+
+		if !field.CanSet() {
+			continue
+		}
+
+		tag := fieldType.Tag.Get("goenv")
+		if tag == "" {
+			continue
+		}
+
+		if err := setField(field, tag); err != nil {
+			return fmt.Errorf("field %s: %w", fieldType.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func setField(field reflect.Value, envKey string) error {
+	switch field.Kind() {
+	case reflect.String:
+		v, err := TryGetEnv(envKey)
+		if err != nil {
+			return err
+		}
+		field.SetString(v)
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if field.Type() == reflect.TypeFor[time.Duration]() {
+			v, err := TryGetEnvDuration(envKey)
+			if err != nil {
+				return err
+			}
+			field.SetInt(int64(v))
+		} else {
+			v, err := TryGetEnvInt(envKey)
+			if err != nil {
+				return err
+			}
+			field.SetInt(int64(v))
+		}
+
+	case reflect.Float32:
+		v, err := TryGetEnvFloat32(envKey)
+		if err != nil {
+			return err
+		}
+		field.SetFloat(float64(v))
+
+	case reflect.Float64:
+		v, err := TryGetEnvFloat64(envKey)
+		if err != nil {
+			return err
+		}
+		field.SetFloat(v)
+
+	case reflect.Bool:
+		v, err := TryGetEnvBool(envKey)
+		if err != nil {
+			return err
+		}
+		field.SetBool(v)
+
+	case reflect.Struct:
+		if field.Type() == reflect.TypeFor[time.Time]() {
+			v, err := TryGetEnvTime(envKey)
+			if err != nil {
+				return err
+			}
+			field.Set(reflect.ValueOf(v))
+		} else {
+			return fmt.Errorf("unsupported struct type %s", field.Type())
+		}
+
+	default:
+		return fmt.Errorf("unsupported field type %s", field.Kind())
+	}
+
+	return nil
 }
