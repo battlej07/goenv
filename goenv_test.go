@@ -663,3 +663,209 @@ func TestMustGetEnvDuration(t *testing.T) {
 		})
 	}
 }
+
+/* ---------- Load (struct tags) ---------- */
+
+func TestLoad(t *testing.T) {
+	type Config struct {
+		Name     string        `goenv:"APP_NAME"`
+		Port     int           `goenv:"APP_PORT"`
+		Enabled  bool          `goenv:"APP_ENABLED"`
+		Rate     float64       `goenv:"APP_RATE"`
+		Timeout  time.Duration `goenv:"APP_TIMEOUT"`
+		StartAt  time.Time     `goenv:"APP_START_AT"`
+		ignored  string        // unexported, should be ignored
+		NoTag    string        // no tag, should be ignored
+	}
+
+	t.Run("success - all fields", func(t *testing.T) {
+		t.Setenv("APP_NAME", "test-app")
+		t.Setenv("APP_PORT", "8080")
+		t.Setenv("APP_ENABLED", "true")
+		t.Setenv("APP_RATE", "99.5")
+		t.Setenv("APP_TIMEOUT", "30s")
+		t.Setenv("APP_START_AT", "2025-01-01T00:00:00Z")
+
+		var cfg Config
+		err := goenv.Load(&cfg)
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Name != "test-app" {
+			t.Errorf("Name = %v, want test-app", cfg.Name)
+		}
+		if cfg.Port != 8080 {
+			t.Errorf("Port = %v, want 8080", cfg.Port)
+		}
+		if !cfg.Enabled {
+			t.Errorf("Enabled = %v, want true", cfg.Enabled)
+		}
+		if !almostEq64(cfg.Rate, 99.5, 1e-12) {
+			t.Errorf("Rate = %v, want 99.5", cfg.Rate)
+		}
+		if cfg.Timeout != 30*time.Second {
+			t.Errorf("Timeout = %v, want 30s", cfg.Timeout)
+		}
+		want := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		if !cfg.StartAt.Equal(want) {
+			t.Errorf("StartAt = %v, want %v", cfg.StartAt, want)
+		}
+	})
+
+	t.Run("error - missing env var", func(t *testing.T) {
+		var cfg Config
+		err := goenv.Load(&cfg)
+		if err == nil {
+			t.Fatal("Load() should have failed with missing env var")
+		}
+	})
+
+	t.Run("error - not a pointer", func(t *testing.T) {
+		var cfg Config
+		err := goenv.Load(cfg)
+		if err == nil {
+			t.Fatal("Load() should have failed with non-pointer")
+		}
+	})
+
+	t.Run("error - nil pointer", func(t *testing.T) {
+		var cfg *Config
+		err := goenv.Load(cfg)
+		if err == nil {
+			t.Fatal("Load() should have failed with nil pointer")
+		}
+	})
+
+	t.Run("error - pointer to non-struct", func(t *testing.T) {
+		var s string
+		err := goenv.Load(&s)
+		if err == nil {
+			t.Fatal("Load() should have failed with pointer to non-struct")
+		}
+	})
+
+	t.Run("float32 field", func(t *testing.T) {
+		type FloatConfig struct {
+			Value float32 `goenv:"FLOAT32_VAL"`
+		}
+		t.Setenv("FLOAT32_VAL", "3.14")
+
+		var cfg FloatConfig
+		err := goenv.Load(&cfg)
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+		if !almostEq32(cfg.Value, 3.14, 1e-6) {
+			t.Errorf("Value = %v, want 3.14", cfg.Value)
+		}
+	})
+
+	t.Run("various int types", func(t *testing.T) {
+		type IntConfig struct {
+			I8  int8  `goenv:"INT8_VAL"`
+			I16 int16 `goenv:"INT16_VAL"`
+			I32 int32 `goenv:"INT32_VAL"`
+			I64 int64 `goenv:"INT64_VAL"`
+		}
+		t.Setenv("INT8_VAL", "42")
+		t.Setenv("INT16_VAL", "1000")
+		t.Setenv("INT32_VAL", "100000")
+		t.Setenv("INT64_VAL", "9999999999")
+
+		var cfg IntConfig
+		err := goenv.Load(&cfg)
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+		if cfg.I8 != 42 {
+			t.Errorf("I8 = %v, want 42", cfg.I8)
+		}
+		if cfg.I16 != 1000 {
+			t.Errorf("I16 = %v, want 1000", cfg.I16)
+		}
+		if cfg.I32 != 100000 {
+			t.Errorf("I32 = %v, want 100000", cfg.I32)
+		}
+		if cfg.I64 != 9999999999 {
+			t.Errorf("I64 = %v, want 9999999999", cfg.I64)
+		}
+	})
+
+	t.Run("fallback - all types", func(t *testing.T) {
+		type FallbackConfig struct {
+			Name    string        `goenv:"FB_NAME" fallback:"default-app"`
+			Port    int           `goenv:"FB_PORT" fallback:"3000"`
+			Enabled bool          `goenv:"FB_ENABLED" fallback:"true"`
+			Rate    float64       `goenv:"FB_RATE" fallback:"1.5"`
+			Ratio   float32       `goenv:"FB_RATIO" fallback:"2.5"`
+			Timeout time.Duration `goenv:"FB_TIMEOUT" fallback:"10s"`
+			StartAt time.Time     `goenv:"FB_START_AT" fallback:"2025-06-01T00:00:00Z"`
+		}
+
+		var cfg FallbackConfig
+		err := goenv.Load(&cfg)
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Name != "default-app" {
+			t.Errorf("Name = %v, want default-app", cfg.Name)
+		}
+		if cfg.Port != 3000 {
+			t.Errorf("Port = %v, want 3000", cfg.Port)
+		}
+		if !cfg.Enabled {
+			t.Errorf("Enabled = %v, want true", cfg.Enabled)
+		}
+		if !almostEq64(cfg.Rate, 1.5, 1e-12) {
+			t.Errorf("Rate = %v, want 1.5", cfg.Rate)
+		}
+		if !almostEq32(cfg.Ratio, 2.5, 1e-6) {
+			t.Errorf("Ratio = %v, want 2.5", cfg.Ratio)
+		}
+		if cfg.Timeout != 10*time.Second {
+			t.Errorf("Timeout = %v, want 10s", cfg.Timeout)
+		}
+		want := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+		if !cfg.StartAt.Equal(want) {
+			t.Errorf("StartAt = %v, want %v", cfg.StartAt, want)
+		}
+	})
+
+	t.Run("fallback - env overrides fallback", func(t *testing.T) {
+		type OverrideConfig struct {
+			Name string `goenv:"OVR_NAME" fallback:"default"`
+			Port int    `goenv:"OVR_PORT" fallback:"8080"`
+		}
+
+		t.Setenv("OVR_NAME", "custom-app")
+		t.Setenv("OVR_PORT", "9000")
+
+		var cfg OverrideConfig
+		err := goenv.Load(&cfg)
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Name != "custom-app" {
+			t.Errorf("Name = %v, want custom-app", cfg.Name)
+		}
+		if cfg.Port != 9000 {
+			t.Errorf("Port = %v, want 9000", cfg.Port)
+		}
+	})
+
+	t.Run("fallback - invalid fallback value", func(t *testing.T) {
+		type BadFallbackConfig struct {
+			Port int `goenv:"BAD_PORT" fallback:"notanumber"`
+		}
+
+		var cfg BadFallbackConfig
+		err := goenv.Load(&cfg)
+		if err == nil {
+			t.Fatal("Load() should have failed with invalid fallback")
+		}
+	})
+}
+

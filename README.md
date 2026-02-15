@@ -74,6 +74,42 @@ fmt.Println("Secret key:", secret)
 
 ```
 
+### Load (struct-based configuration)
+
+The `Load` function populates a struct's fields from environment variables using struct tags. This provides a declarative way to configure your application.
+
+```go
+type Config struct {
+    Host     string        `goenv:"HOST" fallback:"localhost"`
+    Port     int           `goenv:"PORT" fallback:"8080"`
+    Debug    bool          `goenv:"DEBUG" fallback:"false"`
+    Timeout  time.Duration `goenv:"TIMEOUT" fallback:"30s"`
+    APIKey   string        `goenv:"API_KEY"`
+}
+
+func main() {
+    var cfg Config
+    if err := goenv.Load(&cfg); err != nil {
+        panic(err)
+    }
+    
+    fmt.Printf("Server: %s:%d\n", cfg.Host, cfg.Port)
+    fmt.Printf("Debug: %v\n", cfg.Debug)
+}
+```
+
+**Supported types:**
+- `string`
+- `int`, `int8`, `int16`, `int32`, `int64`
+- `float32`, `float64`
+- `bool`
+- `time.Time` (RFC3339 format)
+- `time.Duration`
+
+**Tags:**
+- `goenv:"ENV_VAR_NAME"` - Specifies which environment variable to load (required)
+- `fallback:"value"` - Provides a default value if the environment variable is missing (optional)
+
 ## License
 
 GPL-3.0 license

@@ -6,6 +6,7 @@ package goenv
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"time"
 )
@@ -241,4 +242,160 @@ func MustGetEnvDuration(key string) time.Duration {
 		panic(err)
 	}
 	return v
+}
+
+// Load populates a struct's fields from environment variables using struct tags.
+// Each field should have a `goenv:"ENV_VAR_NAME"` tag to specify which environment
+// variable to load. Optionally, a `fallback:"value"` tag can be used to provide a
+// default value if the environment variable is missing or invalid.
+// The function uses reflection to set field values based on their types.
+// The input must be a pointer to a struct. Returns an error if the input is invalid
+// or if any required environment variable cannot be loaded (and no fallback is provided).
+func Load(v any) error {
+	val := reflect.ValueOf(v)
+	if val.Kind() != reflect.Pointer || val.IsNil() {
+		return fmt.Errorf("Load expects a non-nil pointer to a struct")
+	}
+
+	val = val.Elem()
+	if val.Kind() != reflect.Struct {
+		return fmt.Errorf("Load expects a pointer to a struct, got %s", val.Kind())
+	}
+
+	typ := val.Type()
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		fieldType := typ.Field(i)
+
+		if !field.CanSet() {
+			continue
+		}
+
+		tag := fieldType.Tag.Get("goenv")
+		if tag == "" {
+			continue
+		}
+
+		fallbackTag := fieldType.Tag.Get("fallback")
+		if err := setField(field, tag, fallbackTag); err != nil {
+			return fmt.Errorf("field %s: %w", fieldType.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func setField(field reflect.Value, envKey, fallback string) error {
+	switch field.Kind() {
+	case reflect.String:
+		v, err := TryGetEnv(envKey)
+		if err != nil {
+			if fallback != "" {
+				field.SetString(fallback)
+				return nil
+			}
+			return err
+		}
+		field.SetString(v)
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if field.Type() == reflect.TypeFor[time.Duration]() {
+			v, err := TryGetEnvDuration(envKey)
+			if err != nil {
+				if fallback != "" {
+					d, parseErr := time.ParseDuration(fallback)
+					if parseErr != nil {
+						return fmt.Errorf("invalid fallback duration %q: %w", fallback, parseErr)
+					}
+					field.SetInt(int64(d))
+					return nil
+				}
+				return err
+			}
+			field.SetInt(int64(v))
+		} else {
+			v, err := TryGetEnvInt(envKey)
+			if err != nil {
+				if fallback != "" {
+					i, parseErr := strconv.Atoi(fallback)
+					if parseErr != nil {
+						return fmt.Errorf("invalid fallback integer %q: %w", fallback, parseErr)
+					}
+					field.SetInt(int64(i))
+					return nil
+				}
+				return err
+			}
+			field.SetInt(int64(v))
+		}
+
+	case reflect.Float32:
+		v, err := TryGetEnvFloat32(envKey)
+		if err != nil {
+			if fallback != "" {
+				f, parseErr := strconv.ParseFloat(fallback, 32)
+				if parseErr != nil {
+					return fmt.Errorf("invalid fallback float32 %q: %w", fallback, parseErr)
+				}
+				field.SetFloat(f)
+				return nil
+			}
+			return err
+		}
+		field.SetFloat(float64(v))
+
+	case reflect.Float64:
+		v, err := TryGetEnvFloat64(envKey)
+		if err != nil {
+			if fallback != "" {
+				f, parseErr := strconv.ParseFloat(fallback, 64)
+				if parseErr != nil {
+					return fmt.Errorf("invalid fallback float64 %q: %w", fallback, parseErr)
+				}
+				field.SetFloat(f)
+				return nil
+			}
+			return err
+		}
+		field.SetFloat(v)
+
+	case reflect.Bool:
+		v, err := TryGetEnvBool(envKey)
+		if err != nil {
+			if fallback != "" {
+				b, parseErr := strconv.ParseBool(fallback)
+				if parseErr != nil {
+					return fmt.Errorf("invalid fallback bool %q: %w", fallback, parseErr)
+				}
+				field.SetBool(b)
+				return nil
+			}
+			return err
+		}
+		field.SetBool(v)
+
+	case reflect.Struct:
+		if field.Type() == reflect.TypeFor[time.Time]() {
+			v, err := TryGetEnvTime(envKey)
+			if err != nil {
+				if fallback != "" {
+					t, parseErr := time.Parse(time.RFC3339, fallback)
+					if parseErr != nil {
+						return fmt.Errorf("invalid fallback time %q (RFC3339): %w", fallback, parseErr)
+					}
+					field.Set(reflect.ValueOf(t))
+					return nil
+				}
+				return err
+			}
+			field.Set(reflect.ValueOf(v))
+		} else {
+			return fmt.Errorf("unsupported struct type %s", field.Type())
+		}
+
+	default:
+		return fmt.Errorf("unsupported field type %s", field.Kind())
+	}
+
+	return nil
 }
